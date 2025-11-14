@@ -30,21 +30,23 @@ Assumptions:
 ### 2.1 New/Updated Modules
 
 - `src/utils/spreadsheet.ts`
+
   - Extend with **pure utilities** for formulas:
     - `parseCellAddress(label: string): { row: number; col: number } | null`.
     - `getCellLabel(row: number, col: number): string` (inverse of `parseCellAddress`).
     - `parseRange(range: string): Array<{ row: number; col: number }>`.
     - `evaluateFormula(formula: string, grid: string[][]): string`.
     - `evaluateFunction(name: string, args: string[], grid: string[][]): string`.
-    - `stripCurrencyFormatting(value: string): string` (to normalize pasted formatted currency and any formatted outputs when re-used in formulas).
   - All utilities remain framework-agnostic and side-effect free.
 
 - `src/components/Spreadsheet.tsx`
+
   - Extend evaluation logic so that the **displayed value** for each cell can differ from the raw value when that raw value is a formula.
   - Maintain additional transient state to drive the burn rate animation (e.g., which cells are currently "burning").
   - Provide a way for `Cell` components to access their **computed display value** (either via props or a selector function) without changing the underlying storage model.
 
 - `src/components/Cell.tsx`
+
   - Update to accept both the raw value and a **pre-computed display value**:
     - `value` (raw, stored string).
     - `displayValue` (already formatted/computed by `Spreadsheet`).
@@ -57,13 +59,13 @@ Assumptions:
 ### 2.2 Data Flow Overview
 
 - `Spreadsheet` continues to own `spreadsheetState` and the editing/selection state described in the existing tech spec.
-- For each render, `Spreadsheet` derives a **computed grid**:
+- On initial load and whenever `spreadsheetState` changes, `Spreadsheet` derives a **computed grid**. To optimize performance, the implementation should use memoization. When a cell's value changes, the logic should recompute only the dependents in the formula evaluation graph.
   - `computedGrid: string[][]` where each entry is the display value for that cell, based on:
-    - If raw value starts with `=` and matches `=BURNRATE()`, then a special marker is used to trigger the easter egg.
-    - If raw value starts with `=` and is not `=BURNRATE()`, it is treated as a formula and evaluated via `evaluateFormula`.
+    - If the raw value starts with `=` and matches `=BURNRATE()`, a special marker triggers the easter egg.
+    - If the raw value starts with `=` and is not `=BURNRATE()`, the component treats it as a formula and evaluates it via `evaluateFormula`.
     - Otherwise, the raw value is passed to currency formatting logic.
 - `Cell` receives the **raw** `value` and the **computed** `displayValue`.
-- The burn rate animation state lives in `Spreadsheet` and influences how cells are styled (e.g., fire colors, flame emoji overlay).
+- The burn rate animation state is a transient visual effect managed in `Spreadsheet` and must be decoupled from the core editing state. It influences cell styling (e.g., fire colors, flame emoji overlay).
 
 ## 3. Formula Semantics and Supported Features
 
@@ -77,24 +79,29 @@ Assumptions:
 ### 3.2 Supported Syntax
 
 - **Simple arithmetic expressions** using:
+
   - Binary operators: `+`, `-`, `*`, `/`.
   - Parentheses for grouping.
+  - The parser must handle arbitrary whitespace between tokens (e.g., `= A1 + B2`).
   - Operands can be:
     - Numeric literals (e.g., `1`, `-2.5`, `0.01`).
     - Cell references (e.g., `A1`, `B3`).
     - Function calls (e.g., `SUM(A1:A3)`).
 
 - **Cell references**:
-  - Format: `^[A-Z]+[1-9][0-9]*$`.
-  - Column part: one or more uppercase letters, mapping to 0-based column index via `getColumnLabel` inverse.
+
+  - Format: `^[A-Z]+[1-9][0-9]*$` (case-insensitive, e.g., `a1` is valid).
+  - Column part: one or more letters, mapping to 0-based column index.
   - Row part: 1-based integer, mapping to 0-based row index.
 
 - **Ranges**:
+
   - Format: `<startRef>:<endRef>` (e.g., `A1:A10`, `A1:C3`).
   - Both ends must be valid cell references.
   - The range covers all cells in the rectangle defined by the two references (inclusive, row-first iteration).
 
 - **Functions** (case-insensitive names, but stored normalized):
+
   - `SUM(range or list of args)`
   - `AVG(range or list of args)`
   - `MIN(range or list of args)`
@@ -108,62 +115,51 @@ Assumptions:
   - Numeric literals.
 
 - **Easter egg function**:
-  - `=BURNRATE()` — no arguments.
-  - Any additional characters or arguments should cause this to be treated as a normal (unsupported) formula and **not** trigger the animation.
+  - `=BURNRATE()` — no arguments, case-insensitive, and trimmed.
+  - Any other characters or arguments will cause the parser to treat it as a normal (unsupported) formula and **not** trigger the animation.
 
 ### 3.3 Evaluation Rules
 
 - **Order of operations**:
+
   - Parentheses, then `*` and `/`, then `+` and `-`.
   - Left-to-right within the same precedence.
-  - Functions are evaluated first on their argument list, which may include ranges or expressions.
+  - The engine evaluates functions first on their argument list, which may include ranges or expressions.
 
 - **Cell reference resolution**:
-  - When evaluating a reference, use the **raw value** of the referenced cell.
-  - If the referenced cell contains a formula, evaluate it recursively.
-  - Prevent infinite loops by tracking a set of currently-evaluating cells; if a cycle is detected, return an error marker string like `"#CYCLE"` for the offending cell.
 
-- **Numeric conversion**:
-  - Before using a cell value as a number:
-    - Strip any currency formatting or thousands separators via `stripCurrencyFormatting`.
-    - Use `isNumeric` to determine if it can be treated as a number.
-    - If non-numeric, treat as `0` for aggregation functions but count as non-numeric for `COUNT` (see below).
+  - When evaluating a reference, use the **raw value** of the referenced cell.
+  - If the referenced cell contains a formula, the engine evaluates it recursively.
+  - Prevent infinite loops by tracking a set of currently-evaluating cells; if the engine detects a cycle, it returns an error marker string like `"#CYCLE"` for the offending cell.
+
+- **Numeric conversion and arithmetic**:
+
+  - The formula engine relies on the `spreadsheetState` containing raw, unformatted string values.
+  - Before performing arithmetic, the engine uses `isNumeric` to determine if it can treat a value from a referenced cell as a number.
+  - For arithmetic operators (`+`, `-`, `*`, `/`), if any operand is non-numeric, the expression must return an `#ERROR:VALUE` string.
+  - For aggregation functions (`SUM`, `AVG`, `MIN`, `MAX`), the engine treats non-numeric values as `0`.
+  - `COUNT` counts non-empty cells, regardless of their numeric value.
 
 - **Function behavior**:
-  - `SUM`: sum of all numeric argument values (non-numeric treated as `0`).
-  - `AVG`: arithmetic mean of numeric arguments; non-numeric are ignored for the divisor and treated as `0` in the sum. If no numeric arguments, return `"0"`.
-  - `MIN` / `MAX`: minimum/maximum among numeric arguments; if no numeric arguments, return `"0"`.
-  - `COUNT`: number of **non-empty cells** among arguments, regardless of numeric/non-numeric but excluding pure empty strings.
+
+  - `SUM(args...)`: sum of all numeric argument values (non-numeric treated as `0`).
+  - `AVG(args...)`: arithmetic mean of numeric arguments; the engine ignores non-numeric values for the divisor and treats them as `0` in the sum. If no numeric arguments, return `"0"`.
+  - `MIN(args...)` / `MAX(args...)`: minimum/maximum among numeric arguments; if no numeric arguments, return `"0"`.
+  - `COUNT(args...)`: number of **non-empty cells** among arguments, regardless of numeric/non-numeric but excluding pure empty strings.
+  - Malformed or empty argument lists (e.g., `=SUM()`) should result in an `#ERROR:ARGS` string.
 
 - **Error handling**:
+
   - Parsing errors, invalid references, or invalid function usage should result in a display string prefixed with `"#ERROR"` (e.g., `"#ERROR"`, `"#ERROR:REF"`).
   - Errors from referenced cells propagate as literal strings (e.g., referencing a cell that displays `"#CYCLE"` yields `"#CYCLE"`).
 
 - **Final representation**:
   - Internally, evaluation functions return raw numeric strings or error strings.
-  - When rendering in `Cell`, numeric results are passed through currency formatting logic if the cell is **not** a `BURNRATE` cell.
+  - When rendering in `Cell`, the component passes numeric results through currency formatting logic if the cell is **not** a `BURNRATE` cell.
 
 ## 4. Utility Functions in `src/utils/spreadsheet.ts`
 
-### 4.1 `stripCurrencyFormatting(value: string): string`
-
-Purpose:
-
-- Normalize values that may already contain currency symbols or thousands separators (e.g., pasted `$1,234.50`).
-
-Behavior:
-
-- Trim whitespace.
-- Remove leading `$` and commas.
-- Preserve minus sign and decimal point.
-- Return the cleaned string; do not attempt to evaluate or format.
-
-Usage:
-
-- Before numeric checks in formula evaluation.
-- When handling paste events for cells to ensure stored values remain raw.
-
-### 4.2 `parseCellAddress(label: string)` and `getCellLabel(row, col)`
+### 4.1 `parseCellAddress(label: string)` and `getCellLabel(row, col)`
 
 Purpose:
 
@@ -172,6 +168,7 @@ Purpose:
 Behavior:
 
 - `parseCellAddress`:
+
   - Split the label into column letters and row digits.
   - Convert column letters to index using the inverse of `getColumnLabel` logic.
   - Convert row digits to 0-based index.
@@ -249,25 +246,34 @@ Implementation constraints:
 
 ### 5.2 Computing Display Values
 
-- For each render, `Spreadsheet` should derive a computed value for every cell:
+- In `Spreadsheet`, derive a computed value for every cell. This evaluation logic must use memoization to prevent re-calculating the entire grid on every render.
+
   - Iterate over `spreadsheetState[row][col]`.
   - For each raw value:
-    - If the value equals `"=BURNRATE()"` (case-insensitive, trimmed):
-      - Mark `burnRateOrigin` (if not already set) and set `burnRateActive` to true.
-      - The computed value for this cell can be an empty string or a small label like `""` (display will be dominated by the animation visuals).
+    - If the value is `"=BURNRATE()"` (case-insensitive, trimmed):
+      - The computed value for this cell can be an empty string or a small label like `""`; the animation visuals will dominate the display.
+      - The component should also signal to start the animation.
     - Else if the value begins with `"="`:
       - Call `evaluateFormula` to get a result string.
     - Else:
       - Use the raw value.
   - After obtaining this intermediate computed string:
-    - If it is an error string (starts with `"#"`), use it directly as `displayValue` with **no currency formatting**.
+    - If an error string (starts with `"#"`), use it directly as `displayValue` with **no currency formatting**.
     - Else, pass it through the existing currency formatting logic to produce the final `displayValue`.
 
 - Pass `displayValue` into `Cell` as a new prop, alongside the raw `value`.
 
 ### 5.3 Burn Rate Animation Logic
 
+- The animation is a transient visual effect; decouple its state from the core grid/editing state.
+- If an animation is already active, the logic should ignore subsequent `=BURNRATE()` evaluations.
+
+### 5.3 Burn Rate Animation Logic
+
+- The animation is a transient visual effect; its state must be decoupled from the core grid/editing state.
+- If an animation is already active, the logic should ignore subsequent `=BURNRATE()` evaluations.
 - When `burnRateActive` is true:
+
   - Use a timed effect (e.g., interval or animation frame) to increment `burnRateWave` on a regular cadence (e.g., every 200–300 ms).
   - In each step, determine which cells are part of the current wave:
     - Start at `burnRateOrigin`.
@@ -278,16 +284,20 @@ Implementation constraints:
   - Update `burningCells` accordingly.
 
 - Stopping/dismissing the animation:
-  - If the user presses Escape while `burnRateActive` is true, set `burnRateActive` to false and clear `burningCells`.
-  - If the user clicks anywhere outside the grid or on a dedicated "dismiss" overlay, also clear the animation.
+
+  - The animation stops if the content of the `burnRateOrigin` cell changes to anything other than `=BURNRATE()`.
+  - If the user presses Escape, the logic clears the animation. The Escape key press handler should process the animation logic first, then pass the event to the editing logic if applicable.
+  - If the user clicks anywhere outside the grid or on a dedicated "dismiss" overlay, the logic also clears the animation.
 
 - Animation lifetime:
-  - Allow `burnRateWave` to continue until all cells within the grid that satisfy the spread rule have been visited.
+  - Allow `burnRateWave` to continue until it has visited all cells within the grid that meet the spread rule.
+  - Optionally, add a maximum duration (e.g., 5–10 seconds), after which the animation stops automatically.
   - Optionally, add a maximum duration (e.g., 5–10 seconds), after which the animation stops automatically.
 
 ### 5.4 Visual Representation of Burn Rate
 
 - For any cell whose coordinates are in `burningCells`:
+
   - Adjust the `Cell` styling via additional props:
     - Background color gradient based on the wave index (e.g., yellow → orange → red).
     - Optional overlay icon (e.g., flame emoji) positioned inside the cell.
@@ -308,54 +318,50 @@ Implementation constraints:
 ### 6.2 Display vs Edit Mode
 
 - **Edit mode** (unchanged behavior):
+
   - When `isEditing` is true, render an input showing `editValue`.
   - The user edits the raw string including any leading `=` or function syntax.
 
 - **Display mode** (updated behavior):
   - Show `displayValue` instead of computing currency format locally.
   - If `isBurning` is true, apply additional visual styles:
-    - Background color or overlay to indicate fire.
+    - Background color or overlay to show fire.
     - Optional flame icon text appended or layered.
   - For error strings (starting with `"#"`), use default left alignment and avoid currency formatting.
 
-### 6.3 Paste Handling
-
-- When handling paste in edit mode:
-  - Normalize the pasted string via `stripCurrencyFormatting` before committing, so that:
-    - Pasted `$1,000.00` becomes raw `"1000.00"`.
-  - Preserve formulas as-is if they start with `=`.
-
 ## 7. Keyboard and Interaction Behavior Extensions
 
-### 7.1 Burn Rate Dismissal
+### 7.1 Burn Rate Dismissal and Event Priority
 
-- Update the grid-level `onKeyDown` in `Spreadsheet` to:
-  - If `burnRateActive` is true and the user presses Escape:
-    - Stop the animation and clear state.
-    - Do not affect current cell editing state unless Escape is also meant to cancel an edit (if both conditions apply, prioritise cancelling the edit but also clear the animation).
+- The `onKeyDown` handler in `Spreadsheet` must define a clear order of operations for the Escape key:
+  1. If an animation is active (`burnRateActive` is true), the key press **must first** stop the animation. The handler should then stop the event from propagating further to prevent canceling an edit simultaneously.
+  2. If no animation is active, the key press should fall through to its default behavior (e.g., canceling an edit in progress).
 
 ### 7.2 Formula Editing Flow
 
 - Entering a cell starting with `=` behaves like any other cell:
   - Navigating away commits the raw formula string.
-  - When selection returns to the cell and it is not in edit mode, the evaluated display value is shown.
+  - When selection returns to the cell and it is not in edit mode, the evaluated display value appears.
   - Double-clicking or pressing Enter enters edit mode to show and edit the raw formula.
 
 ## 8. Acceptance Criteria Mapping
 
 - **Formula support:**
+
   - Cells starting with `=` evaluate as formulas, including simple arithmetic and supported functions.
-  - Cell references and ranges are resolved correctly within the 10×10 grid.
-  - Cyclic references are detected and surfaced as error values.
+  - The grid resolves cell references and ranges within the 10×10 grid.
+  - The engine detects and surfaces cyclic references as error values.
 
 - **Function behavior:**
+
   - `SUM`, `AVG`, `MIN`, `MAX`, and `COUNT` behave as specified, supporting both ranges and argument lists.
-  - Non-numeric values are handled according to rules in section 3.3.
+  - The engine handles non-numeric values according to rules in section 3.3.
 
 - **Display vs storage:**
-  - Raw values (including formulas) are stored unchanged in `spreadsheetState`.
-  - Display values for numeric results are currency-formatted using existing utilities.
-  - Error values are displayed without currency formatting.
+
+  - The `spreadsheetState` stores raw values (including formulas) unchanged.
+  - The UI displays currency-formatted numeric results.
+  - The UI displays error values without currency formatting.
 
 - **Burn rate easter egg:**
   - Typing `=BURNRATE()` into any cell triggers a burn rate animation originating from that cell.
@@ -367,24 +373,29 @@ Implementation constraints:
 ## 9. Implementation Order (Step-by-Step Guide)
 
 1. **Extend utilities in `src/utils/spreadsheet.ts`:**
+
    - Add `stripCurrencyFormatting`, `parseCellAddress`, `getCellLabel`, `parseRange`, `evaluateFunction`, and `evaluateFormula` as pure helpers.
    - Ensure they do not import React or Chakra.
 
 2. **Integrate formula evaluation into `Spreadsheet`:**
+
    - In `Spreadsheet`, derive a `computedGrid` based on `spreadsheetState` using the new utilities.
    - Add logic to treat `=BURNRATE()` specially and to apply currency formatting to numeric results.
 
 3. **Update `Cell` props and rendering:**
+
    - Add `displayValue` and `isBurning` props to `Cell`.
    - Use `displayValue` in display mode and raw `editValue` in edit mode.
    - Adjust styling to support error display and burn rate visuals.
 
 4. **Implement burn rate animation state in `Spreadsheet`:**
+
    - Add `burnRateActive`, `burnRateOrigin`, `burnRateWave`, and `burningCells` state.
    - Use a timed effect to update `burnRateWave` and recompute `burningCells` based on the origin.
    - Provide `isBurning` to each `Cell` based on `burningCells`.
 
 5. **Hook up keyboard and dismiss interactions:**
+
    - Extend the existing `onKeyDown` in `Spreadsheet` to stop the burn rate animation on Escape.
    - Optionally add click-outside or overlay-based dismissal.
 

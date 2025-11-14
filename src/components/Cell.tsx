@@ -4,9 +4,11 @@ import { formatCurrency, isNumeric } from '../utils/spreadsheet';
 
 interface CellProps {
   value: string;
+  displayValue: string;
   editValue: string;
   isSelected: boolean;
   isEditing: boolean;
+  isBurning: boolean;
   onSelect: () => void;
   onStartEdit: () => void;
   onEdit: (newValue: string) => void;
@@ -16,6 +18,7 @@ interface CellProps {
 }
 
 const CELL_BG = '#fff';
+const BURNING_BG = 'linear-gradient(135deg, #ffe082, #ff7043)';
 const SELECTED_BORDER = '2px solid #1a73e8';
 const DEFAULT_BORDER = '1px solid #dadce0';
 const CELL_TEXT = '#202124';
@@ -30,9 +33,11 @@ const CELL_TEXT = '#202124';
  */
 export const Cell: React.FC<CellProps> = ({
   value,
+  displayValue,
   editValue,
   isSelected,
   isEditing,
+  isBurning,
   onSelect,
   onStartEdit,
   onEdit,
@@ -71,13 +76,13 @@ export const Cell: React.FC<CellProps> = ({
   };
 
   // When not editing, we show the currency-formatted value.
-  const displayValue = formatCurrency(value);
+  const effectiveDisplay = isEditing ? editValue : displayValue || formatCurrency(value);
 
   return (
     <Box
       w="100px"
       h="32px"
-      bg={CELL_BG}
+      bg={isBurning ? BURNING_BG : CELL_BG}
       color={CELL_TEXT}
       fontSize="14px"
       display="flex"
@@ -121,7 +126,7 @@ export const Cell: React.FC<CellProps> = ({
           overflow="hidden"
           textOverflow="ellipsis"
         >
-          {displayValue}
+          {effectiveDisplay}
         </Text>
       )}
     </Box>
