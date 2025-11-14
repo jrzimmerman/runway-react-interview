@@ -1,10 +1,8 @@
 // src/utils/spreadsheet.ts
 
 /**
- * Converts a zero-based column index into spreadsheet-like labels (A, B, ..., Z, AA, AB, ...).
- * This is a base-26-like conversion, where 0 -> A, 25 -> Z, 26 -> AA.
- * @param index The 0-based column index.
- * @returns The column label as an uppercase string.
+ * 0-based column index into spreadsheet-style label (A, B, ..., Z, AA, ...).
+ * Uses a base-26 (A-Z) scheme where 0 maps to A.
  */
 export const getColumnLabel = (index: number): string => {
   let label = '';
@@ -18,12 +16,8 @@ export const getColumnLabel = (index: number): string => {
 };
 
 /**
- * Checks if a string represents a numeric value.
- * This is used to determine whether a cell's value should be formatted as currency.
- * It trims whitespace and uses `isFinite(Number(...))` for robust checking,
- * which correctly handles integers, decimals, and signs, while rejecting empty or mixed strings.
- * @param value The string to check.
- * @returns True if the string is numeric, false otherwise.
+ * Returns true if the trimmed string is a finite numeric value.
+ * Rejects empty strings and non-numeric / mixed content.
  */
 export const isNumeric = (value: string): boolean => {
   const trimmedValue = value.trim();
@@ -34,12 +28,8 @@ export const isNumeric = (value: string): boolean => {
 };
 
 /**
- * Formats a numeric string as a USD currency string (e.g., "$1,234.56").
- * It uses the `Intl.NumberFormat` API for locale-aware formatting.
- * If the value is not numeric or is empty, it returns the original value unchanged
- * to ensure non-numeric data is displayed as-is.
- * @param value The string value to format.
- * @returns The formatted currency string or the original value.
+ * Formats a numeric string as USD currency (e.g., "$1,234.56").
+ * Returns the original value unchanged for empty or non-numeric input.
  */
 export const formatCurrency = (value: string): string => {
   if (value === '' || !isNumeric(value)) {
@@ -52,6 +42,10 @@ export const formatCurrency = (value: string): string => {
   }).format(numericValue);
 };
 
+/**
+ * Removes currency symbols / grouping (e.g., "$1,234" → "1234").
+ * Returns an empty string for blank input.
+ */
 export const stripCurrencyFormatting = (value: string): string => {
   const trimmed = value.trim();
   if (trimmed === '') return '';
@@ -59,6 +53,10 @@ export const stripCurrencyFormatting = (value: string): string => {
   return normalized;
 };
 
+/**
+ * Parses a cell label like "B3" into 0-based row/col indices.
+ * Returns null if the address is invalid or outside bounds.
+ */
 export const parseCellAddress = (
   label: string,
   maxRows: number = 10,
@@ -83,10 +81,17 @@ export const parseCellAddress = (
   return { row: rowIndex, col: colIndex };
 };
 
+/**
+ * Builds a cell label (e.g., row 0, col 1 → "B1").
+ */
 export const getCellLabel = (row: number, col: number): string => {
   return `${getColumnLabel(col)}${row + 1}`;
 };
 
+/**
+ * Expands a range like "A1:C3" into a list of cell coordinates.
+ * Returns an empty array for invalid ranges or addresses.
+ */
 export const parseRange = (
   range: string,
   maxRows: number = 10,
@@ -110,10 +115,20 @@ export const parseRange = (
   return result;
 };
 
+/**
+ * True if the string represents a spreadsheet error ("#...").
+ */
 const isErrorValue = (value: string): boolean => value.startsWith('#');
 
+/**
+ * Matches simple cell references like "A1", "BC12".
+ */
 const CELL_REF_REGEX = /^[A-Z]+[1-9][0-9]*$/i;
 
+/**
+ * Safely reads a raw cell value from the grid.
+ * Returns a REF error if the indices are out of bounds.
+ */
 const getCellRawValue = (
   grid: string[][],
   row: number,
@@ -125,6 +140,10 @@ const getCellRawValue = (
   return grid[row][col];
 };
 
+/**
+ * Evaluates a supported spreadsheet function (SUM, AVG, MIN, MAX, COUNT).
+ * Arguments can be literals, cell refs (e.g., "A1"), or ranges (e.g., "A1:B3").
+ */
 export const evaluateFunction = (
   name: string,
   args: string[],
@@ -200,13 +219,23 @@ export const evaluateFunction = (
   }
 };
 
+/**
+ * Shared evaluation context for formulas (used for cycle detection).
+ */
 type EvalContext = {
   grid: string[][];
   visiting: Set<string>;
 };
 
+/**
+ * Builds a stable key for a cell position.
+ */
 const makeKey = (row: number, col: number) => `${row}:${col}`;
 
+/**
+ * Evaluates a cell formula string relative to a grid.
+ * Supports references, basic arithmetic, and functions while detecting cycles.
+ */
 export const evaluateFormula = (
   formula: string,
   grid: string[][],
@@ -387,4 +416,3 @@ export const evaluateFormula = (
   context.visiting.delete(key);
   return result;
 };
-
