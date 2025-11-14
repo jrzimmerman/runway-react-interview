@@ -68,15 +68,30 @@ Adding these files ensures the AI stays on task and meets feature requirements.
 
 ## Completed Features
 
-I implemented the following core requirements:
+I implemented the following core requirements and enhancements:
 
-1.  **Row and Column Labels**: The spreadsheet now features classic row (1, 2, 3...) and column (A, B, C...) headers. These labels remain fixed and visible as you scroll, providing clear orientation within the grid.
+1.  **Editable Sheet Title**: The sheet title at the top of the page now behaves like a familiar document title field. You can click to rename it inline, press `Enter` to save, or press `Escape` to revert to the previous value.
 
-2.  **Currency Formatting**: The application automatically displays any numeric value entered into a cell as a comma-separated USD currency string (e.g., `1234.5` becomes `$1,234.50`). It preserves the raw numeric value for editing, ensuring a seamless data entry experience.
+2.  **Row and Column Labels**: The spreadsheet now features classic row (1, 2, 3...) and column (A, B, C...) headers. These labels remain fixed and visible as you scroll, providing clear orientation within the grid.
 
-3.  **Single-Cell Selection and Keyboard Navigation**:
-    *   Users can select a single cell, which highlights with a blue border.
-    *   The corresponding row and column headers are also highlighted to improve visibility.
-    *   Users can move the selection using the arrow keys, `Tab`/`Shift+Tab`, and `Enter`/`Shift+Enter`, providing a familiar navigation experience consistent with popular spreadsheet applications.
-    *   Pressing `Enter` or starting to type on a selected cell initiates editing. While editing, all navigation keys (e.g., `ArrowUp`, `Tab`) will first commit the change and then move the selection.
-    *   Pressing the `Escape` key while editing will cancel the changes and revert the cell to its original value.
+3.  **Currency Formatting**: The application automatically displays any numeric value entered into a cell as a comma-separated USD currency string (e.g., `1234.5` becomes `$1,234.50`). It preserves the raw numeric value for editing, ensuring a seamless data entry experience.
+
+4.  **Single-Cell Selection and Keyboard Navigation**:
+
+- Users can select a single cell, which highlights with a blue border.
+- The corresponding row and column headers are also highlighted to improve visibility.
+- Users can move the selection using the arrow keys, `Tab`/`Shift+Tab`, and `Enter`/`Shift+Enter`, providing a familiar navigation experience consistent with popular spreadsheet applications.
+- Pressing `Enter` or starting to type on a selected cell initiates editing. While editing, keys like `Tab`, `Enter`, and the vertical arrow keys (`ArrowUp`/`ArrowDown`) will first commit the change and then move the selection, while the horizontal arrow keys move the caret within the cell.
+- Pressing the `Escape` key while editing will cancel the changes and revert the cell to its original value.
+
+5.  **Formula Support**:
+
+- Cells that start with `=` act as formulas, supporting arithmetic (`+`, `-`, `*`, `/`), parentheses, and cell references (e.g., `=A1+B2`).
+- The grid supports common functions like `SUM`, `AVG`, `MIN`, `MAX`, and `COUNT`, with both individual cell references and ranges (e.g., `=SUM(A1:A10)`).
+- The engine detects invalid references, argument errors, and cyclic dependencies and surfaces them as spreadsheet-style error values (e.g., `#ERROR`, `#CYCLE`).
+- Numeric results show using the same USD currency formatting as raw numeric cells.
+
+6.  **Burn Rate Easter Egg**:
+
+- The grid includes a small hidden feature: entering a special formula in a cell triggers a burn-rate style animation that radiates across the sheet while leaving selection and editing behavior intact.
+- The effect stays temporary; you can dismiss it via keyboard or interaction, returning the grid to its normal appearance.

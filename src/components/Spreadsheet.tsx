@@ -126,7 +126,7 @@ const Spreadsheet: React.FC = () => {
             e.preventDefault();
             setEditingCell(null);
             break;
-          // Arrow keys in edit mode should commit the edit and then navigate.
+          // Arrow up/down keys in edit mode should commit the edit and then navigate.
           case 'ArrowUp':
             e.preventDefault();
             move(-1, 0);
@@ -134,14 +134,6 @@ const Spreadsheet: React.FC = () => {
           case 'ArrowDown':
             e.preventDefault();
             move(1, 0);
-            break;
-          case 'ArrowLeft':
-            e.preventDefault();
-            move(0, -1);
-            break;
-          case 'ArrowRight':
-            e.preventDefault();
-            move(0, 1);
             break;
           default:
             // Allow other keys (like text input) to be handled by the input field.
@@ -367,7 +359,12 @@ const Spreadsheet: React.FC = () => {
                   isEditing={!!isEditing}
                   isBurning={isBurning}
                   onSelect={() => {
-                    if (editingCell) commitEdit();
+                    if (editingCell) {
+                      if (editingCell.row === rowIdx && editingCell.col === colIdx) {
+                        return;
+                      }
+                      commitEdit();
+                    }
                     setSelectedCell({ row: rowIdx, col: colIdx });
                   }}
                   onStartEdit={() => {

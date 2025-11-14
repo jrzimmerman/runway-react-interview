@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { Box, Input, Text } from '@chakra-ui/react';
-import { formatCurrency, isNumeric } from '../utils/spreadsheet';
+import { isNumeric } from '../utils/spreadsheet';
 
 interface CellProps {
   value: string;
@@ -32,7 +32,6 @@ const CELL_TEXT = '#202124';
  * All state is managed by the parent `Spreadsheet` component.
  */
 export const Cell: React.FC<CellProps> = ({
-  value,
   displayValue,
   editValue,
   isSelected,
@@ -50,12 +49,12 @@ export const Cell: React.FC<CellProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // `useEffect` synchronizes the component with an external system (the DOM).
-  // Here, it's used to focus and select the text in the input field whenever the
-  // cell transitions into `isEditing` mode.
+  // Here, it's used to focus the input field whenever the cell transitions
+  // into `isEditing` mode. We intentionally avoid selecting all text so that
+  // mouse clicks can place the caret at a specific position inside formulas.
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus();
-      inputRef.current.select();
     }
   }, [isEditing]);
 
@@ -75,8 +74,7 @@ export const Cell: React.FC<CellProps> = ({
     }
   };
 
-  // When not editing, we show the currency-formatted value.
-  const effectiveDisplay = isEditing ? editValue : displayValue || formatCurrency(value);
+  const effectiveDisplay = isEditing ? editValue : displayValue;
 
   return (
     <Box
@@ -121,7 +119,7 @@ export const Cell: React.FC<CellProps> = ({
           py="5px"
           w="100%"
           h="100%"
-          textAlign={isNumeric(value) ? 'right' : 'left'}
+          textAlign={isNumeric(effectiveDisplay) ? 'right' : 'left'}
           whiteSpace="nowrap"
           overflow="hidden"
           textOverflow="ellipsis"
